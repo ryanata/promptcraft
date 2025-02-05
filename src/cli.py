@@ -25,7 +25,8 @@ from prompt_toolkit.key_binding import KeyBindings
 from gitignore_parser import parse_gitignore
 
 # The base commands available.
-BASE_COMMANDS = ["/file", "/folder", ":q"]
+# Update BASE_COMMANDS to include the new command
+BASE_COMMANDS = ["/file", "/folder", "/all", ":q"]
 
 def is_hidden(path):
     """Check if a file or directory is hidden in a cross-platform way."""
@@ -177,6 +178,7 @@ def main():
     print("Type your prompt text below. Available commands:")
     print("  /file <filepath>   -> insert file contents")
     print("  /folder <folder>   -> insert folder contents (recursively)")
+    print("  /all              -> insert all files in current directory")
     print("  :q                 -> finish editing and save prompt")
     print("  Ctrl+C            -> finish editing and save prompt")
     print("Use Tab or Down+Enter to autocomplete commands and paths.\n")
@@ -215,13 +217,13 @@ def main():
                 print("\nExiting...")
                 break
             except EOFError:
-                # Ctrl-D: exit the editor.
                 break
 
             stripped = line.strip()
             if stripped == ":q":
                 break
-            # In the main loop, update the file command call:
+            elif stripped == "/all":
+                process_folder_command(".", prompt_lines, target_folder)
             elif stripped.startswith("/file "):
                 filepath = stripped[len("/file "):].strip()
                 process_file_command(filepath, prompt_lines, target_folder)
