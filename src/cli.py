@@ -26,7 +26,7 @@ from gitignore_parser import parse_gitignore
 
 # The base commands available.
 # Update BASE_COMMANDS to include the new command
-BASE_COMMANDS = ["/file", "/folder", "/all", ":q"]
+BASE_COMMANDS = ["/file", "/folder", "/all", "/cd", ":q"]
 
 def is_hidden(path):
     """Check if a file or directory is hidden in a cross-platform way."""
@@ -57,18 +57,56 @@ class PromptCraftCompleter(Completer):
             else lambda x: False
         )
 
+    def is_path_ignored(self, path):
+        """Safely check if a path matches gitignore rules"""
+        try:
+            return self.matches_gitignore(path)
+        except (ValueError, Exception):
+            # If the path is outside the project directory or any other error occurs,
+            # consider it as not ignored
+            return False
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
 
         if text.startswith("/"):
-            if text.startswith("/folder "):
+            if text.startswith("/cd "):
+                arg = text[len("/cd "):]
+                arg_doc = Document(text=arg, cursor_position=len(arg))
+                folder_completer = PathCompleter(
+                    expanduser=True,
+                    file_filter=lambda path: (
+                        os.path.isdir(path) and 
+                        not self.is_path_ignored(path) and
+                        not is_hidden(path)
+                    ),
+                    get_paths=lambda: [self.base_dir],
+                    only_directories=True,
+                    min_input_len=0
+                )
+                for comp in folder_completer.get_completions(arg_doc, complete_event):
+                    # Preserve the relative path structure
+                    if arg.startswith('..') or arg.startswith('./'):
+                        relative_path = os.path.join(os.path.dirname(arg), comp.text)
+                        yield Completion(
+                            relative_path,
+                            start_position=-len(arg),
+                            display=comp.display
+                        )
+                    else:
+                        yield Completion(
+                            comp.text,
+                            start_position=-len(arg),
+                            display=comp.display
+                        )
+            elif text.startswith("/folder "):
                 arg = text[len("/folder "):]
                 arg_doc = Document(text=arg, cursor_position=len(arg))
                 folder_completer = PathCompleter(
                     expanduser=True,
                     file_filter=lambda path: (
                         os.path.isdir(path) and 
-                        not self.matches_gitignore(path) and
+                        not self.is_path_ignored(path) and
                         not is_hidden(path)
                     ),
                     get_paths=lambda: [self.base_dir]
@@ -87,7 +125,7 @@ class PromptCraftCompleter(Completer):
                     expanduser=True,
                     file_filter=lambda path: (
                         os.path.isfile(path) and 
-                        not self.matches_gitignore(path)
+                        not self.is_path_ignored(path)
                     ),
                     get_paths=lambda: [self.base_dir]
                 )
@@ -224,6 +262,20 @@ def main():
                 break
             elif stripped == "/all":
                 process_folder_command(".", prompt_lines, target_folder)
+            elif stripped.startswith("/cd "):
+                new_path = stripped[len("/cd "):].strip()
+                # Convert relative path to absolute path
+                if not os.path.isabs(new_path):
+                    new_path = os.path.join(target_folder, new_path)
+                new_path = os.path.abspath(new_path)
+                
+                if os.path.exists(new_path) and os.path.isdir(new_path):
+                    target_folder = new_path
+                    # Update the session with new completer for the new directory
+                    session.completer = PromptCraftCompleter(target_folder)
+                    print(f"Changed working directory to: {target_folder}")
+                else:
+                    print(f"Error: Directory not found: {new_path}")
             elif stripped.startswith("/file "):
                 filepath = stripped[len("/file "):].strip()
                 process_file_command(filepath, prompt_lines, target_folder)
